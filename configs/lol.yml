@@ -1,0 +1,146 @@
+# GENERATE TIME: Wed May  3 14:44:29 2023
+# CMD:
+# basicsr/train.py -opt MM_config/lol_DE_0503_v2.yml
+
+# general settings
+name: lol
+model_type: BilevelLLModelAdditionalIterOperation
+scale: 1
+num_gpu: 1  # set num_gpu: 0 for cpu mode
+manual_seed: 0
+optim_method: None
+
+# dataset and data loader settings
+datasets:
+  train:
+    name: TrainSet
+    type: PairedImageDataset
+    dataroot_gt: datasets/LOLv2/LOL_train/Low
+    dataroot_lq: datasets/LOLv2/LOL_train/Low
+    
+    filename_tmpl: '{}'
+    io_backend:
+      type: disk
+      # (for lmdb)
+      # type: lmdb
+
+    gt_size: 128
+    use_hflip: true
+    use_rot: true
+
+    # data loader
+    num_worker_per_gpu: 6
+    batch_size_per_gpu: 16
+    dataset_enlarge_ratio: 1
+    prefetch_mode: ~
+
+  val:
+    name: TestSet
+    type: PairedImageDataset
+    dataroot_gt: datasets/LOLv2/LOL_test/Normal
+    dataroot_lq: datasets/LOLv2/LOL_test/Low
+    io_backend:
+      type: disk
+
+# network structures
+network_g:
+  type: TestSingleStageDE
+  f_config:
+    type: AttenValueEnh
+  dn_config:
+    type: MyUnetDenoise
+    in_channels: 3
+    ckpt: pretrained_models/denoise_lol.pth
+
+
+# path
+path:
+  pretrain_network_g: ~
+  strict_load_g: true
+  resume_state: ~
+  experiments_root: MM_EXP
+
+# training settings
+train:
+  use_grad_clip: true
+  ema_decay: 0
+  lower_optimizer:
+    type: Adam
+    optim_params: self.net_g.f.parameters()
+    lr: !!float 1e-4
+    weight_decay: 0
+    betas: [0.9, 0.999]
+
+  upper_optimizer:
+    type: Adam
+    optim_params: self.net_g.f.parameters()
+    lr: !!float 1e-4
+    weight_decay: 0
+    betas: [0.9, 0.999]
+
+  additional_optimizer:
+    type: Adam
+    iteratiron_steps: 25
+    optim_iters: 50
+    optim_params: self.net_g.dn.parameters()
+    lr: !!float 1e-4
+    weight_decay: 0
+    betas: [0.9, 0.999]
+
+  scheduler:
+    type: MultiStepLR
+    milestones: [5000, 10000, 20000, 30000]
+    gamma: 0.5
+
+  total_iter: 5000
+  warmup_iter: -1  # no warm up
+
+  # losses
+  lower_losses: [
+    {
+      type: ColorLoss3
+    },
+  ]
+
+  upper_losses: [
+    {
+      type: ColorLoss3
+    },
+  ]
+
+  additional_losses: [
+    {
+      type: AdaptiveDenoiseLoss,
+      sigma_weihgt: 10
+    }
+  ]
+
+# validation settings
+val:
+  # val_freq: !!float 4e3
+  val_freq: !!float 100
+  save_img: false
+
+  metrics:
+    psnr: # metric name, can be arbitrary
+      type: calculate_psnr
+      crop_border: 0
+      test_y_channel: false
+
+    ssim:
+      type: calculate_ssim
+      crop_border: 0
+
+# logging settings
+logger:
+  print_freq: 50
+  save_checkpoint_freq: !!float 100
+  use_tb_logger: true
+  wandb:
+    project: ~
+    resume_id: ~
+
+# dist training settings
+dist_params:
+  backend: nccl
+  port: 29500
